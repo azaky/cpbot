@@ -1,25 +1,16 @@
-// Copyright 2016 LINE Corporation
-//
-// LINE Corporation licenses this file to you under the Apache License,
-// version 2.0 (the "License"); you may not use this file except in compliance
-// with the License. You may obtain a copy of the License at:
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS, WITHOUT
-// WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied. See the
-// License for the specific language governing permissions and limitations
-// under the License.
-
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"time"
+
+	"github.com/azaky/cplinebot/clist"
 
 	"github.com/line/line-bot-sdk-go/linebot"
 )
@@ -30,8 +21,10 @@ func main() {
 		os.Getenv("CHANNEL_TOKEN"),
 	)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error when initializing linebot: %s", err.Error())
 	}
+
+	clistService := clist.NewService(os.Getenv("CLIST_APIKEY"), http.DefaultClient)
 
 	// Setup HTTP Server for receiving requests from LINE platform
 	http.HandleFunc("/callback", func(w http.ResponseWriter, req *http.Request) {
@@ -61,20 +54,60 @@ func main() {
 	http.HandleFunc("/push", func(w http.ResponseWriter, req *http.Request) {
 		body, err := ioutil.ReadAll(req.Body)
 		if err != nil {
-			log.Printf("ERROR: %s", err.Error())
+			log.Printf("/push error: %s", err.Error())
 			w.WriteHeader(500)
 			return
 		}
 		var reqmap map[string]string
 		err = json.Unmarshal(body, &reqmap)
 		if err != nil {
-			log.Printf("ERROR: %s", err.Error())
+			log.Printf("/push error: %s", err.Error())
 			w.WriteHeader(500)
 			return
 		}
 
 		if _, err = bot.PushMessage(reqmap["user"], linebot.NewTextMessage(reqmap["text"])).Do(); err != nil {
-			log.Printf("ERROR: %s", err.Error())
+			log.Printf("/push error: %s", err.Error())
+		}
+	})
+
+	// Remind a user about contests in the next 24 hours
+	http.HandleFunc("/remind", func(w http.ResponseWriter, req *http.Request) {
+		body, err := ioutil.ReadAll(req.Body)
+		if err != nil {
+			log.Printf("/remind error: %s", err.Error())
+			w.WriteHeader(500)
+			return
+		}
+		var reqmap map[string]string
+		err = json.Unmarshal(body, &reqmap)
+		if err != nil {
+			log.Printf("/remind error: %s", err.Error())
+			w.WriteHeader(500)
+			return
+		}
+
+		startFrom := time.Now()
+		startEnd := time.Now().Add(86400 * time.Second)
+		contests, err := clistService.GetContestsStartingBetween(startFrom, startEnd)
+		if err != nil {
+			log.Printf("/remind error: %s", err.Error())
+			w.WriteHeader(500)
+			return
+		}
+
+		var buffer bytes.Buffer
+		buffer.WriteString("Contests in the next 24 hours:\n")
+		for _, contest := range contests {
+			buffer.WriteString(fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link))
+		}
+
+		user := reqmap["user"]
+		message := buffer.String()
+		log.Println(message)
+
+		if _, err = bot.PushMessage(user, linebot.NewTextMessage(message)).Do(); err != nil {
+			log.Printf("/remind error: %s", err.Error())
 		}
 	})
 
@@ -84,8 +117,6 @@ func main() {
 		w.Write([]byte(`{"message":"Hello from cplinebot"}`))
 	})
 
-	// This is just sample code.
-	// For actual use, you must support HTTPS by using `ListenAndServeTLS`, a reverse proxy or something else.
 	if err := http.ListenAndServe(":"+os.Getenv("PORT"), nil); err != nil {
 		log.Fatal(err)
 	}
