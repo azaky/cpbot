@@ -1,0 +1,13 @@
+hash: dfff35ca97c59aa59bcf7fc7ac7e41fc987b366ca645417a9ad90ba358f53d75
+updated: 2017-09-26T00:29:01.955274027+07:00
+imports:
+- name: github.com/line/line-bot-sdk-go
+  version: 3a7d66f5efce6ac202f650134609f9d6d163a640
+  subpackages:
+  - linebot
+- name: golang.org/x/net
+  version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
+  subpackages:
+  - context
+  - context/ctxhttp
+testImports: []
