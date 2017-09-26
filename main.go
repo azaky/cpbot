@@ -2,12 +2,11 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/azaky/cplinebot/cache"
@@ -104,8 +103,11 @@ func main() {
 				switch message := event.Message.(type) {
 				case *linebot.TextMessage:
 					log.Printf("Received message from %s: %s", event.Source.UserID, message.Text)
-					if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message.Text)).Do(); err != nil {
-						log.Printf("Error replying to EventTypeMessage: %s", err.Error())
+					// echo if it contains @cp-bot
+					if strings.Contains(message.Text, "@cp-bot") {
+						if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message.Text)).Do(); err != nil {
+							log.Printf("Error replying to EventTypeMessage: %s", err.Error())
+						}
 					}
 				}
 			}
@@ -138,67 +140,6 @@ func main() {
 		}
 	})
 	job.Start()
-
-	// Setup Push Message
-	http.HandleFunc("/push", func(w http.ResponseWriter, req *http.Request) {
-		body, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			log.Printf("/push error: %s", err.Error())
-			w.WriteHeader(500)
-			return
-		}
-		var reqmap map[string]string
-		err = json.Unmarshal(body, &reqmap)
-		if err != nil {
-			log.Printf("/push error: %s", err.Error())
-			w.WriteHeader(500)
-			return
-		}
-
-		if _, err = bot.PushMessage(reqmap["user"], linebot.NewTextMessage(reqmap["text"])).Do(); err != nil {
-			log.Printf("/push error: %s", err.Error())
-		}
-	})
-
-	// Remind a user about contests in the next 24 hours
-	http.HandleFunc("/remind", func(w http.ResponseWriter, req *http.Request) {
-		body, err := ioutil.ReadAll(req.Body)
-		if err != nil {
-			log.Printf("/remind error: %s", err.Error())
-			w.WriteHeader(500)
-			return
-		}
-		var reqmap map[string]string
-		err = json.Unmarshal(body, &reqmap)
-		if err != nil {
-			log.Printf("/remind error: %s", err.Error())
-			w.WriteHeader(500)
-			return
-		}
-
-		startFrom := time.Now()
-		startTo := time.Now().Add(86400 * time.Second)
-		contests, err := clistService.GetContestsStartingBetween(startFrom, startTo)
-		if err != nil {
-			log.Printf("/remind error: %s", err.Error())
-			w.WriteHeader(500)
-			return
-		}
-
-		var buffer bytes.Buffer
-		buffer.WriteString("Contests in the next 24 hours:\n")
-		for _, contest := range contests {
-			buffer.WriteString(fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link))
-		}
-
-		user := reqmap["user"]
-		message := buffer.String()
-		log.Println(message)
-
-		if _, err = bot.PushMessage(user, linebot.NewTextMessage(message)).Do(); err != nil {
-			log.Printf("/remind error: %s", err.Error())
-		}
-	})
 
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		w.Header().Add("Content-Type", "application/json")
