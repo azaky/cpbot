@@ -82,6 +82,7 @@ func main() {
 		for _, event := range events {
 			log.Printf("[EVENT][%s] Source: %#v", event.Type, event.Source)
 			switch event.Type {
+
 			case linebot.EventTypeJoin:
 				fallthrough
 			case linebot.EventTypeFollow:
@@ -93,6 +94,15 @@ func main() {
 				if _, err = bot.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
 					log.Printf("Error replying to EventTypeJoin: %s", err.Error())
 				}
+
+			case linebot.EventTypeLeave:
+				fallthrough
+			case linebot.EventTypeUnfollow:
+				_, err := cacheService.RemoveUser(event.Source)
+				if err != nil {
+					log.Printf("Error RemoveUser: %s", err.Error())
+				}
+
 			case linebot.EventTypeMessage:
 				switch message := event.Message.(type) {
 				case *linebot.TextMessage:
