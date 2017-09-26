@@ -116,24 +116,25 @@ func main() {
 	// Setup cron job for daily reminder
 	job := cron.New()
 	job.AddFunc(os.Getenv("CRON_SCHEDULE"), func() {
+		log.Printf("[CRON] Start reminder")
 		message, err := generate24HUpcomingContestsMessage(clistService)
 		if err != nil {
 			// TODO: retry mechanism
-			log.Printf("Error when running reminder job: generate message error: %s", err.Error())
+			log.Printf("[CRON] Error generating message: %s", err.Error())
 			return
 		}
 
 		users, err := cacheService.GetUsers()
 		if err != nil {
 			// TODO: retry mechanism
-			log.Printf("Error when running reminder job: get users error: %s", err.Error())
+			log.Printf("[CRON] Error getting users: %s", err.Error())
 			return
 		}
 
 		for _, user := range users {
 			userID := fmt.Sprintf("%s%s%s", user.GroupID, user.RoomID, user.UserID)
 			if _, err = bot.PushMessage(userID, linebot.NewTextMessage(message)).Do(); err != nil {
-				log.Printf("Error when running reminder job: send message error: %s", err.Error())
+				log.Printf("[CRON] Error sending message to [%s]: %s", userID, err.Error())
 			}
 		}
 	})
