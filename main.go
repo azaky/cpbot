@@ -10,8 +10,10 @@ import (
 	"os"
 	"time"
 
+	"github.com/azaky/cplinebot/cache"
 	"github.com/azaky/cplinebot/clist"
 
+	"github.com/garyburd/redigo/redis"
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
@@ -21,8 +23,8 @@ I will remind you the schedule of upcoming competitive programming contests. Con
 
 func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
 	startFrom := time.Now()
-	startEnd := time.Now().Add(86400 * time.Second)
-	contests, err := clistService.GetContestsStartingBetween(startFrom, startEnd)
+	startTo := time.Now().Add(86400 * time.Second)
+	contests, err := clistService.GetContestsStartingBetween(startFrom, startTo)
 	if err != nil {
 		log.Printf("Error generate24HUpcomingContestsMessage: %s", err.Error())
 		return "", err
@@ -58,7 +60,13 @@ func main() {
 		log.Fatalf("Error when initializing linebot: %s", err.Error())
 	}
 
-	clistService := clist.NewService(os.Getenv("CLIST_APIKEY"), http.DefaultClient)
+	redisConn, err := redis.Dial("tcp", os.Getenv("REDIS_ENDPOINT"))
+	if err != nil {
+		log.Fatalf("Error when connecting to redis: %s", err.Error())
+	}
+
+	clistService := clist.NewService(os.Getenv("CLIST_APIKEY"), &http.Client{Timeout: 5 * time.Second})
+	cacheService := cache.NewService(redisConn)
 
 	// Setup HTTP Server for receiving requests from LINE platform
 	http.HandleFunc("/callback", func(w http.ResponseWriter, req *http.Request) {
@@ -75,13 +83,12 @@ func main() {
 			log.Printf("[EVENT][%s] Source: %#v", event.Type, event.Source)
 			switch event.Type {
 			case linebot.EventTypeJoin:
-				// TODO: save user/group id somewhere
-				messages := generateGreetingMessage(clistService)
-				if _, err = bot.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
-					log.Printf("Error replying to EventTypeJoin: %s", err.Error())
-				}
+				fallthrough
 			case linebot.EventTypeFollow:
-				// TODO: save user/group id somewhere
+				_, err := cacheService.AddUser(event.Source)
+				if err != nil {
+					log.Printf("Error AddUser: %s", err.Error())
+				}
 				messages := generateGreetingMessage(clistService)
 				if _, err = bot.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
 					log.Printf("Error replying to EventTypeJoin: %s", err.Error())
@@ -136,8 +143,8 @@ func main() {
 		}
 
 		startFrom := time.Now()
-		startEnd := time.Now().Add(86400 * time.Second)
-		contests, err := clistService.GetContestsStartingBetween(startFrom, startEnd)
+		startTo := time.Now().Add(86400 * time.Second)
+		contests, err := clistService.GetContestsStartingBetween(startFrom, startTo)
 		if err != nil {
 			log.Printf("/remind error: %s", err.Error())
 			w.WriteHeader(500)

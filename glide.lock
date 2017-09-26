@@ -1,10 +1,16 @@
-hash: dfff35ca97c59aa59bcf7fc7ac7e41fc987b366ca645417a9ad90ba358f53d75
-updated: 2017-09-26T00:29:01.955274027+07:00
+hash: 516d3e1aea019a847d3c97470181dc11285633f34cf37f6ddec9d54e7ff5045a
+updated: 2017-09-27T00:17:51.407322559+07:00
 imports:
+- name: github.com/garyburd/redigo
+  version: 433969511232c397de61b1442f9fd49ec06ae9ba
+  subpackages:
+  - redis
 - name: github.com/line/line-bot-sdk-go
   version: 3a7d66f5efce6ac202f650134609f9d6d163a640
   subpackages:
   - linebot
+- name: github.com/robfig/cron
+  version: b024fc5ea0e34bc3f83d9941c8d60b0622bfaca4
 - name: golang.org/x/net
   version: f2499483f923065a842d38eb4c7f1927e6fc6e6d
   subpackages:

@@ -4,3 +4,9 @@ import:
   version: ^1.0.0
   subpackages:
   - linebot
+- package: github.com/robfig/cron
+  version: ^1.0.0
+- package: github.com/garyburd/redigo
+  version: ^1.1.0
+  subpackages:
+  - redis
