@@ -6,18 +6,16 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"math/rand"
 	"net/http"
 	"os"
 	"time"
-
-	"github.com/robfig/cron"
 
 	"github.com/azaky/cplinebot/cache"
 	"github.com/azaky/cplinebot/clist"
 
 	"github.com/garyburd/redigo/redis"
 	"github.com/line/line-bot-sdk-go/linebot"
+	"github.com/robfig/cron"
 )
 
 func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
@@ -116,10 +114,8 @@ func main() {
 
 	// Setup cron job for daily reminder
 	job := cron.New()
-	rand.Seed(time.Now().UnixNano())
-	number := rand.Int63()
 	job.AddFunc(os.Getenv("CRON_SCHEDULE"), func() {
-		log.Printf("[CRON] Start reminder. id = %d:%d", number, rand.Int63())
+		log.Printf("[CRON] Start reminder")
 		message, err := generate24HUpcomingContestsMessage(clistService)
 		if err != nil {
 			// TODO: retry mechanism
