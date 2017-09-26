@@ -30,6 +30,9 @@ func generateUpcomingContestsMessage(clistService clist.Service, startFrom, star
 	for _, contest := range contests {
 		buffer.WriteString(fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link))
 	}
+	if len(contests) == 0 {
+		buffer.WriteString("0 contest found")
+	}
 
 	return buffer.String(), nil
 }
