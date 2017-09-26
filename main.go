@@ -17,10 +17,6 @@ import (
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
-const greetingMessage = `Thanks for adding me!
-
-I will remind you the schedule of upcoming competitive programming contests. Contest times are provided by this awesome https://clist.by by Aleksey Ropan`
-
 func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
 	startFrom := time.Now()
 	startTo := time.Now().Add(86400 * time.Second)
@@ -41,7 +37,7 @@ func generate24HUpcomingContestsMessage(clistService clist.Service) (string, err
 
 func generateGreetingMessage(clistService clist.Service) []linebot.Message {
 	var messages []linebot.Message
-	messages = append(messages, linebot.NewTextMessage(greetingMessage))
+	messages = append(messages, linebot.NewTextMessage(os.Getenv("GREETING_MESSAGE")))
 
 	initialReminder, err := generate24HUpcomingContestsMessage(clistService)
 	if err == nil {
