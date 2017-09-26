@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"net/http"
 	"os"
 	"time"
@@ -115,8 +116,10 @@ func main() {
 
 	// Setup cron job for daily reminder
 	job := cron.New()
+	rand.Seed(time.Now().UnixNano())
+	number := rand.Int63()
 	job.AddFunc(os.Getenv("CRON_SCHEDULE"), func() {
-		log.Printf("[CRON] Start reminder")
+		log.Printf("[CRON] Start reminder. id = %d", number)
 		message, err := generate24HUpcomingContestsMessage(clistService)
 		if err != nil {
 			// TODO: retry mechanism
