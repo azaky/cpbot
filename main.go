@@ -10,6 +10,8 @@ import (
 	"os"
 	"time"
 
+	"github.com/robfig/cron"
+
 	"github.com/azaky/cplinebot/cache"
 	"github.com/azaky/cplinebot/clist"
 
@@ -110,6 +112,32 @@ func main() {
 			}
 		}
 	})
+
+	// Setup cron job for daily reminder
+	job := cron.New()
+	job.AddFunc(os.Getenv("CRON_SCHEDULE"), func() {
+		message, err := generate24HUpcomingContestsMessage(clistService)
+		if err != nil {
+			// TODO: retry mechanism
+			log.Printf("Error when running reminder job: generate message error: %s", err.Error())
+			return
+		}
+
+		users, err := cacheService.GetUsers()
+		if err != nil {
+			// TODO: retry mechanism
+			log.Printf("Error when running reminder job: get users error: %s", err.Error())
+			return
+		}
+
+		for _, user := range users {
+			userID := fmt.Sprintf("%s%s%s", user.GroupID, user.RoomID, user.UserID)
+			if _, err = bot.PushMessage(userID, linebot.NewTextMessage(message)).Do(); err != nil {
+				log.Printf("Error when running reminder job: send message error: %s", err.Error())
+			}
+		}
+	})
+	job.Start()
 
 	// Setup Push Message
 	http.HandleFunc("/push", func(w http.ResponseWriter, req *http.Request) {
