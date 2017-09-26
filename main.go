@@ -119,7 +119,7 @@ func main() {
 	rand.Seed(time.Now().UnixNano())
 	number := rand.Int63()
 	job.AddFunc(os.Getenv("CRON_SCHEDULE"), func() {
-		log.Printf("[CRON] Start reminder. id = %d", number)
+		log.Printf("[CRON] Start reminder. id = %d:%d", number, rand.Int63())
 		message, err := generate24HUpcomingContestsMessage(clistService)
 		if err != nil {
 			// TODO: retry mechanism
