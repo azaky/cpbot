@@ -15,6 +15,40 @@ import (
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
+const greetingMessage = `Thanks for adding me!
+
+I will remind you the schedule of upcoming competitive programming contests. Contest times are provided by this awesome https://clist.by by Aleksey Ropan`
+
+func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
+	startFrom := time.Now()
+	startEnd := time.Now().Add(86400 * time.Second)
+	contests, err := clistService.GetContestsStartingBetween(startFrom, startEnd)
+	if err != nil {
+		log.Printf("Error generate24HUpcomingContestsMessage: %s", err.Error())
+		return "", err
+	}
+
+	var buffer bytes.Buffer
+	buffer.WriteString("Contests in the next 24 hours:\n")
+	for _, contest := range contests {
+		buffer.WriteString(fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link))
+	}
+
+	return buffer.String(), nil
+}
+
+func generateGreetingMessage(clistService clist.Service) []linebot.Message {
+	var messages []linebot.Message
+	messages = append(messages, linebot.NewTextMessage(greetingMessage))
+
+	initialReminder, err := generate24HUpcomingContestsMessage(clistService)
+	if err == nil {
+		messages = append(messages, linebot.NewTextMessage(initialReminder))
+	}
+
+	return messages
+}
+
 func main() {
 	bot, err := linebot.New(
 		os.Getenv("CHANNEL_SECRET"),
@@ -38,12 +72,26 @@ func main() {
 			return
 		}
 		for _, event := range events {
-			if event.Type == linebot.EventTypeMessage {
+			log.Printf("[EVENT][%s] Source: %#v", event.Type, event.Source)
+			switch event.Type {
+			case linebot.EventTypeJoin:
+				// TODO: save user/group id somewhere
+				messages := generateGreetingMessage(clistService)
+				if _, err = bot.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
+					log.Printf("Error replying to EventTypeJoin: %s", err.Error())
+				}
+			case linebot.EventTypeFollow:
+				// TODO: save user/group id somewhere
+				messages := generateGreetingMessage(clistService)
+				if _, err = bot.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
+					log.Printf("Error replying to EventTypeJoin: %s", err.Error())
+				}
+			case linebot.EventTypeMessage:
 				switch message := event.Message.(type) {
 				case *linebot.TextMessage:
-					log.Printf("Received message from %s", event.Source.UserID)
+					log.Printf("Received message from %s: %s", event.Source.UserID, message.Text)
 					if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message.Text)).Do(); err != nil {
-						log.Print(err)
+						log.Printf("Error replying to EventTypeMessage: %s", err.Error())
 					}
 				}
 			}
