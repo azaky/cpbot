@@ -6,7 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"strings"
+	"regexp"
 	"time"
 
 	"github.com/azaky/cplinebot/cache"
@@ -17,9 +17,7 @@ import (
 	"github.com/robfig/cron"
 )
 
-func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
-	startFrom := time.Now()
-	startTo := time.Now().Add(86400 * time.Second)
+func generateUpcomingContestsMessage(clistService clist.Service, startFrom, startTo time.Time, message string) (string, error) {
 	contests, err := clistService.GetContestsStartingBetween(startFrom, startTo)
 	if err != nil {
 		log.Printf("Error generate24HUpcomingContestsMessage: %s", err.Error())
@@ -27,12 +25,19 @@ func generate24HUpcomingContestsMessage(clistService clist.Service) (string, err
 	}
 
 	var buffer bytes.Buffer
-	buffer.WriteString("Contests in the next 24 hours:\n")
+	buffer.WriteString(message)
+	buffer.WriteString("\n")
 	for _, contest := range contests {
 		buffer.WriteString(fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link))
 	}
 
 	return buffer.String(), nil
+}
+
+func generate24HUpcomingContestsMessage(clistService clist.Service) (string, error) {
+	startFrom := time.Now()
+	startTo := time.Now().Add(86400 * time.Second)
+	return generateUpcomingContestsMessage(clistService, startFrom, startTo, "Contests in the next 24 hours:")
 }
 
 func generateGreetingMessage(clistService clist.Service) []linebot.Message {
@@ -46,6 +51,12 @@ func generateGreetingMessage(clistService clist.Service) []linebot.Message {
 
 	return messages
 }
+
+// Regexes for commands
+var (
+	regexEcho = regexp.MustCompile("@cp\\-bot\\s+echo\\s*(.*)")
+	regexShow = regexp.MustCompile("@cp\\-bot\\s+in\\s*(\\w+)")
+)
 
 func main() {
 	bot, err := linebot.New(
@@ -103,10 +114,35 @@ func main() {
 				switch message := event.Message.(type) {
 				case *linebot.TextMessage:
 					log.Printf("Received message from %s: %s", event.Source.UserID, message.Text)
-					// echo if it contains @cp-bot
-					if strings.Contains(message.Text, "@cp-bot") {
-						if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message.Text)).Do(); err != nil {
-							log.Printf("Error replying to EventTypeMessage: %s", err.Error())
+
+					// echo
+					if matches := regexEcho.FindStringSubmatch(message.Text); len(matches) > 0 {
+						reply := matches[1]
+						if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+							log.Printf("Error replying: %s", err.Error())
+						}
+					}
+
+					// find contests within duration
+					if matches := regexShow.FindStringSubmatch(message.Text); len(matches) > 0 {
+						duration, err := time.ParseDuration(matches[1])
+						if err != nil {
+							// Duration is not valid
+							reply := fmt.Sprintf("%s is not a valid duration", matches[1])
+							if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+								log.Printf("Error replying: %s", err.Error())
+							}
+							break
+						}
+
+						reply, err := generateUpcomingContestsMessage(clistService, time.Now(), time.Now().Add(duration), fmt.Sprintf("Contests starting within %s:", duration))
+						if err != nil {
+							log.Printf("Error getting contests: %s", err.Error())
+							break
+						}
+
+						if _, err = bot.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+							log.Printf("Error replying: %s", err.Error())
 						}
 					}
 				}
