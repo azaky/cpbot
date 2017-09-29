@@ -40,6 +40,10 @@ func (r *Redis) AddDaily(userID string, t int) (interface{}, error) {
 	return r.conn.Do("ZADD", r.getDailyKey(), t, userID)
 }
 
+func (r *Redis) RemoveDaily(userID string) (interface{}, error) {
+	return r.conn.Do("ZREM", r.getDailyKey(), userID)
+}
+
 type UserTime struct {
 	User string
 	Time int

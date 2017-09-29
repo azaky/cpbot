@@ -28,8 +28,10 @@ type LineBot struct {
 
 var (
 	lineGreetingMessage     = os.Getenv("LINE_GREETING_MESSAGE")
-	lineRegexEcho           = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "echo"))
-	lineRegexShow           = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "in"))
+	lineRegexEcho           = regexp.MustCompile(fmt.Sprintf("^@%s\\s+%s\\s*(.*)$", os.Getenv("LINE_BOT_NAME"), "echo"))
+	lineRegexShow           = regexp.MustCompile(fmt.Sprintf("^@%s\\s+%s\\s*(.*)$", os.Getenv("LINE_BOT_NAME"), "in"))
+	lineRegexDaily          = regexp.MustCompile(fmt.Sprintf("^@%s\\s+%s\\s*([0-9:]*)\\s*$", os.Getenv("LINE_BOT_NAME"), "daily"))
+	lineRegexDailyOff       = regexp.MustCompile(fmt.Sprintf("^@%s\\s+%s\\s*%s\\s*$", os.Getenv("LINE_BOT_NAME"), "daily", "off"))
 	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
 )
 
@@ -126,23 +128,37 @@ func (lb *LineBot) handleTextMessage(event linebot.Event, message *linebot.TextM
 	log.Printf("Received message from %s: %s", event.Source.UserID, message.Text)
 
 	// echo
-	if matches := lineRegexEcho.FindStringSubmatch(message.Text); len(matches) > 0 {
-		lb.echo(event, matches[1])
+	if matches := lineRegexEcho.FindStringSubmatch(message.Text); len(matches) > 1 {
+		lb.actionEcho(event, matches[1])
+		return
 	}
 
 	// find contests within duration
-	if matches := lineRegexShow.FindStringSubmatch(message.Text); len(matches) > 0 {
-		lb.showContestsWithin(event, matches[1])
+	if matches := lineRegexShow.FindStringSubmatch(message.Text); len(matches) > 1 {
+		lb.actionShowContestsWithin(event, matches[1])
+		return
+	}
+
+	// change daily reminder schedule
+	if matches := lineRegexDaily.FindStringSubmatch(message.Text); len(matches) > 1 {
+		lb.actionUpdateDaily(event, matches[1])
+		return
+	}
+
+	// turn off daily reminder schedule
+	if matches := lineRegexDailyOff.FindStringSubmatch(message.Text); len(matches) > 0 {
+		lb.actionRemoveDaily(event)
+		return
 	}
 }
 
-func (lb *LineBot) echo(event linebot.Event, message string) {
+func (lb *LineBot) actionEcho(event linebot.Event, message string) {
 	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message)).Do(); err != nil {
 		lb.log("Error replying: %s", err.Error())
 	}
 }
 
-func (lb *LineBot) showContestsWithin(event linebot.Event, durationStr string) {
+func (lb *LineBot) actionShowContestsWithin(event linebot.Event, durationStr string) {
 	duration, err := time.ParseDuration(durationStr)
 	if err != nil {
 		// Duration is not valid
@@ -163,6 +179,33 @@ func (lb *LineBot) showContestsWithin(event linebot.Event, durationStr string) {
 		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
 			lb.log("Error replying: %s", err.Error())
 		}
+	}
+}
+
+func (lb *LineBot) actionUpdateDaily(event linebot.Event, tstr string) {
+	t, err := util.ParseTime(tstr)
+	if err != nil {
+		reply := fmt.Sprintf("%s is not a valid time", tstr)
+		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+			lb.log("Error replying: %s", err.Error())
+		}
+		return
+	}
+
+	user := util.LineEventSourceToString(event.Source)
+	lb.updateDaily(user, t)
+	reply := fmt.Sprintf("Daily contest reminder has been set everyday at %s", tstr)
+	if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+		lb.log("Error replying: %s", err.Error())
+	}
+}
+
+func (lb *LineBot) actionRemoveDaily(event linebot.Event) {
+	user := util.LineEventSourceToString(event.Source)
+	lb.removeDaily(user)
+	reply := "Daily contest reminder has been turned off"
+	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+		lb.log("Error replying: %s", err.Error())
 	}
 }
 
@@ -223,6 +266,22 @@ func (lb *LineBot) updateDaily(user string, t int) {
 	next := util.NextTime(t)
 	if next.Before(lb.dailyNext) {
 		lb.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(user))
+	}
+}
+
+func (lb *LineBot) removeDaily(user string) {
+	_, err := lb.repo.RemoveDaily(user)
+	if err != nil {
+		lb.log("[DAILY] Error removing from repo (%s): %s", user, err.Error())
+	}
+
+	if !lb.dailyStarted() {
+		return
+	}
+
+	if t, ok := lb.dailyTimer[user]; ok {
+		t.Stop()
+		delete(lb.dailyTimer, user)
 	}
 }
 

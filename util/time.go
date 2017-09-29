@@ -24,7 +24,7 @@ func ParseTime(t string) (int, error) {
 		return -1, fmt.Errorf("Invalid time: HH must be in range [0, 23]")
 	}
 	var m, s int64
-	if len(matches) > 2 {
+	if len(matches) > 2 && len(matches[2]) > 0 {
 		m, err = strconv.ParseInt(matches[2], 10, 64)
 		if err != nil {
 			return -1, err
@@ -33,7 +33,7 @@ func ParseTime(t string) (int, error) {
 			return -1, fmt.Errorf("Invalid time: MM must be in range [0, 59]")
 		}
 	}
-	if len(matches) > 3 {
+	if len(matches) > 3 && len(matches[3]) > 0 {
 		s, err = strconv.ParseInt(matches[3], 10, 64)
 		if err != nil {
 			return -1, err
