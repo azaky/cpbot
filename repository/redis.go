@@ -9,13 +9,19 @@ import (
 )
 
 type Redis struct {
-	conn   redis.Conn
+	pool   *redis.Pool
 	prefix string
 }
 
-func NewRedis(prefix string, conn redis.Conn) *Redis {
+func NewRedis(prefix, addr string) *Redis {
 	return &Redis{
-		conn:   conn,
+		pool: &redis.Pool{
+			MaxIdle:   10,
+			MaxActive: 10,
+			Dial: func() (redis.Conn, error) {
+				return redis.Dial("tcp", addr)
+			},
+		},
 		prefix: prefix,
 	}
 }
@@ -25,23 +31,33 @@ func (r *Redis) getUserKey() string {
 }
 
 func (r *Redis) AddUser(userID string) (interface{}, error) {
-	return r.conn.Do("SADD", r.getUserKey(), userID)
+	conn := r.pool.Get()
+	defer conn.Close()
+	return conn.Do("SADD", r.getUserKey(), userID)
 }
 
 func (r *Redis) RemoveUser(userID string) (interface{}, error) {
-	return r.conn.Do("SREM", r.getUserKey(), userID)
+	conn := r.pool.Get()
+	defer conn.Close()
+	return conn.Do("SREM", r.getUserKey(), userID)
 }
 
 func (r *Redis) GetUsers() ([]string, error) {
-	return redis.Strings(r.conn.Do("SMEMBERS", r.getUserKey()))
+	conn := r.pool.Get()
+	defer conn.Close()
+	return redis.Strings(conn.Do("SMEMBERS", r.getUserKey()))
 }
 
 func (r *Redis) AddDaily(userID string, t int) (interface{}, error) {
-	return r.conn.Do("ZADD", r.getDailyKey(), t, userID)
+	conn := r.pool.Get()
+	defer conn.Close()
+	return conn.Do("ZADD", r.getDailyKey(), t, userID)
 }
 
 func (r *Redis) RemoveDaily(userID string) (interface{}, error) {
-	return r.conn.Do("ZREM", r.getDailyKey(), userID)
+	conn := r.pool.Get()
+	defer conn.Close()
+	return conn.Do("ZREM", r.getDailyKey(), userID)
 }
 
 type UserTime struct {
@@ -58,7 +74,9 @@ func (r *Redis) GetDailyWithin(from, to time.Time) ([]UserTime, error) {
 	ito := util.TimeToInt(to)
 	// TODO: handle case middle of night
 	var res []UserTime
-	reply, err := redis.Values(r.conn.Do("ZRANGEBYSCORE", r.getDailyKey(), ifrom, ito, "WITHSCORES"))
+	conn := r.pool.Get()
+	defer conn.Close()
+	reply, err := redis.Values(conn.Do("ZRANGEBYSCORE", r.getDailyKey(), ifrom, ito, "WITHSCORES"))
 	if err != nil {
 		return nil, err
 	}

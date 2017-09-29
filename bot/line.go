@@ -12,7 +12,6 @@ import (
 	"github.com/azaky/cpbot/clist"
 	"github.com/azaky/cpbot/repository"
 	"github.com/azaky/cpbot/util"
-	"github.com/garyburd/redigo/redis"
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
@@ -35,12 +34,12 @@ var (
 	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
 )
 
-func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisConn redis.Conn) *LineBot {
+func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisEndpoint string) *LineBot {
 	bot, err := linebot.New(channelSecret, channelToken)
 	if err != nil {
 		log.Fatalf("Error when initializing linebot: %s", err.Error())
 	}
-	repo := repository.NewRedis("line", redisConn)
+	repo := repository.NewRedis("line", redisEndpoint)
 	return &LineBot{
 		clistService: clistService,
 		client:       bot,

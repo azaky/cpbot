@@ -9,24 +9,18 @@ import (
 
 	"github.com/azaky/cpbot/bot"
 	"github.com/azaky/cpbot/clist"
-	"github.com/garyburd/redigo/redis"
 )
 
 func main() {
 
 	clistService := clist.NewService(os.Getenv("CLIST_APIKEY"), &http.Client{Timeout: 5 * time.Second})
 
-	redisConn, err := redis.Dial("tcp", os.Getenv("REDIS_ENDPOINT"))
-	if err != nil {
-		log.Fatalf("Error when connecting to redis: %s", err.Error())
-	}
-
 	// Setup LineBot
 	lineBot := bot.NewLineBot(
 		os.Getenv("LINE_CHANNEL_SECRET"),
 		os.Getenv("LINE_CHANNEL_TOKEN"),
 		clistService,
-		redisConn,
+		os.Getenv("REDIS_ENDPOINT"),
 	)
 	http.HandleFunc("/line/callback", lineBot.EventHandler)
 	lineDailyDuration, err := strconv.ParseInt(os.Getenv("LINE_DAILY_PERIOD"), 10, 64)
