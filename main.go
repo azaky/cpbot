@@ -23,8 +23,8 @@ func main() {
 
 	// Setup LineBot
 	lineBot := bot.NewLineBot(
-		os.Getenv("CHANNEL_SECRET"),
-		os.Getenv("CHANNEL_TOKEN"),
+		os.Getenv("LINE_CHANNEL_SECRET"),
+		os.Getenv("LINE_CHANNEL_TOKEN"),
 		clistService,
 		redisConn,
 	)

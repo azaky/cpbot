@@ -26,8 +26,8 @@ type LineBot struct {
 
 var (
 	lineGreetingMessage = os.Getenv("LINE_GREETING_MESSAGE")
-	lineRegexEcho       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("BOT_NAME"), "echo"))
-	lineRegexShow       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("BOT_NAME"), "in"))
+	lineRegexEcho       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "echo"))
+	lineRegexShow       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "in"))
 )
 
 func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisConn redis.Conn) *LineBot {
