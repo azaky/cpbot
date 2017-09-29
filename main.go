@@ -4,11 +4,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/azaky/cpbot/bot"
 	"github.com/azaky/cpbot/clist"
-
 	"github.com/garyburd/redigo/redis"
 )
 
@@ -29,7 +29,11 @@ func main() {
 		redisConn,
 	)
 	http.HandleFunc("/line/callback", lineBot.EventHandler)
-	lineBot.StartDailyCron(os.Getenv("CRON_SCHEDULE"))
+	lineDailyDuration, err := strconv.ParseInt(os.Getenv("LINE_DAILY_PERIOD"), 10, 64)
+	if err != nil {
+		lineDailyDuration = 1800
+	}
+	lineBot.StartDailyJob(time.Duration(lineDailyDuration) * time.Second)
 
 	// Setup root endpoint
 	http.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {

@@ -7,7 +7,9 @@ import (
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
-var lineEventSourceRegex = regexp.MustCompile("(\\w+):(\\w+)")
+var (
+	lineEventSourceRegex = regexp.MustCompile("(\\w+):(\\w+)")
+)
 
 func LineEventSourceToString(es *linebot.EventSource) string {
 	return fmt.Sprintf("%s:%s%s%s", es.Type, es.GroupID, es.RoomID, es.UserID)

@@ -2,7 +2,9 @@ package repository
 
 import (
 	"fmt"
+	"time"
 
+	"github.com/azaky/cpbot/util"
 	"github.com/garyburd/redigo/redis"
 )
 
@@ -32,4 +34,30 @@ func (r *Redis) RemoveUser(userID string) (interface{}, error) {
 
 func (r *Redis) GetUsers() ([]string, error) {
 	return redis.Strings(r.conn.Do("SMEMBERS", r.getUserKey()))
+}
+
+func (r *Redis) AddDaily(userID string, t int) (interface{}, error) {
+	return r.conn.Do("ZADD", r.getDailyKey(), t, userID)
+}
+
+type UserTime struct {
+	User string
+	Time int
+}
+
+func (r *Redis) getDailyKey() string {
+	return fmt.Sprintf("%s:daily", r.prefix)
+}
+
+func (r *Redis) GetDailyWithin(from, to time.Time) ([]UserTime, error) {
+	ifrom := util.TimeToInt(from)
+	ito := util.TimeToInt(to)
+	// TODO: handle case middle of night
+	var res []UserTime
+	reply, err := redis.Values(r.conn.Do("ZRANGEBYSCORE", r.getDailyKey(), ifrom, ito, "WITHSCORES"))
+	if err != nil {
+		return nil, err
+	}
+	err = redis.ScanSlice(reply, &res)
+	return res, err
 }

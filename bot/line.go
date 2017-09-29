@@ -6,9 +6,8 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"time"
-
-	"github.com/robfig/cron"
 
 	"github.com/azaky/cpbot/clist"
 	"github.com/azaky/cpbot/repository"
@@ -21,13 +20,17 @@ type LineBot struct {
 	clistService *clist.Service
 	client       *linebot.Client
 	repo         *repository.Redis
-	dailyCron    *cron.Cron
+	dailyTicker  *time.Ticker
+	dailyTimer   map[string]*time.Timer
+	dailyNext    time.Time
+	dailyPeriod  time.Duration
 }
 
 var (
-	lineGreetingMessage = os.Getenv("LINE_GREETING_MESSAGE")
-	lineRegexEcho       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "echo"))
-	lineRegexShow       = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "in"))
+	lineGreetingMessage     = os.Getenv("LINE_GREETING_MESSAGE")
+	lineRegexEcho           = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "echo"))
+	lineRegexShow           = regexp.MustCompile(fmt.Sprintf("@%s\\s+%s\\s*(.*)", os.Getenv("LINE_BOT_NAME"), "in"))
+	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
 )
 
 func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisConn redis.Conn) *LineBot {
@@ -81,58 +84,23 @@ func (lb *LineBot) EventHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (lb *LineBot) StartDailyCron(schedule string) {
-	if lb.dailyCron != nil {
-		lb.log("An attempt to start daily cron, but the job has already started")
-		return
-	}
-	job := cron.New()
-	job.AddFunc(schedule, func() {
-		lb.log("[CRON] Start reminder")
-		message, err := generate24HUpcomingContestsMessage(lb.clistService)
-		if err != nil {
-			// TODO: retry mechanism
-			lb.log("[CRON] Error generating message: %s", err.Error())
-			return
-		}
-
-		users, err := lb.repo.GetUsers()
-		if err != nil {
-			// TODO: retry mechanism
-			lb.log("[CRON] Error getting users: %s", err.Error())
-			return
-		}
-
-		for _, user := range users {
-			eventSource, err := util.StringToLineEventSource(user)
-			if err != nil {
-				lb.log("[CRON] found invalid user [%s]: %s", user, err.Error())
-				continue
-			}
-			to := fmt.Sprintf("%s%s%s", eventSource.GroupID, eventSource.RoomID, eventSource.UserID)
-			if _, err = lb.client.PushMessage(to, linebot.NewTextMessage(message)).Do(); err != nil {
-				lb.log("[CRON] Error sending message to [%s]: %s", to, err.Error())
-			}
-		}
-	})
-	job.Start()
-	lb.dailyCron = job
-}
-
 func (lb *LineBot) generateGreetingMessage() []linebot.Message {
 	var messages []linebot.Message
 	messages = append(messages, linebot.NewTextMessage(lineGreetingMessage))
 
-	initialReminder, err := generate24HUpcomingContestsMessage(lb.clistService)
+	initialReminder, err := generate24HUpcomingContestsMessage(lb.clistService, lineMaxMessageLength)
 	if err == nil {
-		messages = append(messages, linebot.NewTextMessage(initialReminder))
+		for _, message := range initialReminder {
+			messages = append(messages, linebot.NewTextMessage(message))
+		}
 	}
 
 	return messages
 }
 
 func (lb *LineBot) handleFollow(event linebot.Event) {
-	_, err := lb.repo.AddUser(util.LineEventSourceToString(event.Source))
+	user := util.LineEventSourceToString(event.Source)
+	_, err := lb.repo.AddUser(user)
 	if err != nil {
 		lb.log("Error adding user: %s", err.Error())
 	}
@@ -140,10 +108,15 @@ func (lb *LineBot) handleFollow(event linebot.Event) {
 	if _, err = lb.client.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
 		lb.log("Error replying to follow event: %s", err.Error())
 	}
+
+	// Setup default daily reminder
+	t, _ := util.ParseTime(os.Getenv("LINE_DAILY_DEFAULT"))
+	lb.updateDaily(user, t)
 }
 
 func (lb *LineBot) handleUnfollow(event linebot.Event) {
-	_, err := lb.repo.RemoveUser(util.LineEventSourceToString(event.Source))
+	user := util.LineEventSourceToString(event.Source)
+	_, err := lb.repo.RemoveUser(user)
 	if err != nil {
 		lb.log("Error removing user: %s", err.Error())
 	}
@@ -180,13 +153,98 @@ func (lb *LineBot) showContestsWithin(event linebot.Event, durationStr string) {
 		return
 	}
 
-	reply, err := generateUpcomingContestsMessage(lb.clistService, time.Now(), time.Now().Add(duration), fmt.Sprintf("Contests starting within %s:", duration))
+	replies, err := generateUpcomingContestsMessage(lb.clistService, time.Now(), time.Now().Add(duration), fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
 	if err != nil {
 		lb.log("Error getting contests: %s", err.Error())
 		return
 	}
 
-	if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
+	for _, reply := range replies {
+		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
+			lb.log("Error replying: %s", err.Error())
+		}
+	}
+}
+
+func (lb *LineBot) StartDailyJob(duration time.Duration) {
+	if lb.dailyTicker != nil {
+		lb.log("An attempt to start daily job, but the job has already started")
+		return
+	}
+	lb.dailyPeriod = duration
+	lb.dailyTicker = time.NewTicker(lb.dailyPeriod)
+
+	lb.dailyJob(time.Now())
+	go func() {
+		for t := range lb.dailyTicker.C {
+			lb.dailyJob(t)
+		}
+	}()
+}
+
+func (lb *LineBot) dailyJob(now time.Time) {
+	lb.log("[DAILY] Start job")
+	lb.dailyNext = now.Add(lb.dailyPeriod)
+
+	userTimes, err := lb.repo.GetDailyWithin(now, lb.dailyNext)
+	if err != nil {
+		lb.log("[DAILY] Error getting daily within: %s", err.Error())
+		return
+	}
+
+	lb.log("[DAILY] Schedule for the following users: %v", userTimes)
+
+	lb.dailyTimer = make(map[string]*time.Timer)
+	for _, userTime := range userTimes {
+		next := util.NextTime(userTime.Time)
+		lb.dailyTimer[userTime.User] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(userTime.User))
+	}
+}
+
+func (lb *LineBot) dailyStarted() bool {
+	return lb.dailyTicker != nil
+}
+
+func (lb *LineBot) updateDaily(user string, t int) {
+	_, err := lb.repo.AddDaily(user, t)
+	if err != nil {
+		lb.log("[DAILY] Error adding to repo (%s, %d): %s", user, t, err.Error())
+	}
+
+	if !lb.dailyStarted() {
+		return
+	}
+
+	if t, ok := lb.dailyTimer[user]; ok {
+		t.Stop()
+		delete(lb.dailyTimer, user)
+	}
+
+	next := util.NextTime(t)
+	if next.Before(lb.dailyNext) {
+		lb.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(user))
+	}
+}
+
+func (lb *LineBot) dailyReminderFunc(user string) func() {
+	return func() {
+		messages, err := generate24HUpcomingContestsMessage(lb.clistService, lineMaxMessageLength)
+		if err != nil {
+			// TODO: retry mechanism
+			lb.log("[DAILY] Error generating message: %s", err.Error())
+			return
+		}
+
+		eventSource, err := util.StringToLineEventSource(user)
+		if err != nil {
+			lb.log("[DAILY] found invalid user [%s]: %s", user, err.Error())
+			return
+		}
+		to := fmt.Sprintf("%s%s%s", eventSource.GroupID, eventSource.RoomID, eventSource.UserID)
+		for _, message := range messages {
+			if _, err = lb.client.PushMessage(to, linebot.NewTextMessage(message)).Do(); err != nil {
+				lb.log("[CRON] Error sending message to [%s]: %s", to, err.Error())
+			}
+		}
 	}
 }
