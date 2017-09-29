@@ -62,8 +62,8 @@ type Service struct {
 	httpClient *http.Client
 }
 
-func NewService(apiKey string, httpClient *http.Client) Service {
-	return Service{
+func NewService(apiKey string, httpClient *http.Client) *Service {
+	return &Service{
 		ApiKey:     apiKey,
 		httpClient: httpClient,
 	}
