@@ -298,7 +298,7 @@ func (lb *LineBot) dailyReminderFunc(user string) func() {
 			lb.log("[DAILY] found invalid user [%s]: %s", user, err.Error())
 			return
 		}
-		to := fmt.Sprintf("%s%s%s", eventSource.GroupID, eventSource.RoomID, eventSource.UserID)
+		to := fmt.Sprintf("%s", util.LineEventSourceToReplyString(eventSource))
 		for _, message := range messages {
 			if _, err = lb.client.PushMessage(to, linebot.NewTextMessage(message)).Do(); err != nil {
 				lb.log("[CRON] Error sending message to [%s]: %s", to, err.Error())

@@ -11,8 +11,21 @@ var (
 	lineEventSourceRegex = regexp.MustCompile("(\\w+):(\\w+)")
 )
 
+func LineEventSourceToReplyString(es *linebot.EventSource) string {
+	switch es.Type {
+	case linebot.EventSourceTypeGroup:
+		return es.GroupID
+	case linebot.EventSourceTypeRoom:
+		return es.RoomID
+	case linebot.EventSourceTypeUser:
+		return es.UserID
+	default:
+		return ""
+	}
+}
+
 func LineEventSourceToString(es *linebot.EventSource) string {
-	return fmt.Sprintf("%s:%s%s%s", es.Type, es.GroupID, es.RoomID, es.UserID)
+	return fmt.Sprintf("%s:%s", es.Type, LineEventSourceToReplyString(es))
 }
 
 func StringToLineEventSource(s string) (*linebot.EventSource, error) {
