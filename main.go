@@ -6,8 +6,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/azaky/cplinebot/bot"
-	"github.com/azaky/cplinebot/clist"
+	"github.com/azaky/cpbot/bot"
+	"github.com/azaky/cpbot/clist"
 
 	"github.com/garyburd/redigo/redis"
 )

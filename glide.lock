@@ -1,9 +1,10 @@
-hash: 516d3e1aea019a847d3c97470181dc11285633f34cf37f6ddec9d54e7ff5045a
-updated: 2017-09-27T00:17:51.407322559+07:00
+hash: 630060373dc7ba9d2ec951d7a29e0736660343341fffee51f0a3051bccf324e2
+updated: 2017-09-29T19:00:50.373846136+07:00
 imports:
 - name: github.com/garyburd/redigo
   version: 433969511232c397de61b1442f9fd49ec06ae9ba
   subpackages:
+  - internal
   - redis
 - name: github.com/line/line-bot-sdk-go
   version: 3a7d66f5efce6ac202f650134609f9d6d163a640

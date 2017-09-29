@@ -10,9 +10,9 @@ import (
 
 	"github.com/robfig/cron"
 
-	"github.com/azaky/cplinebot/clist"
-	"github.com/azaky/cplinebot/repository"
-	"github.com/azaky/cplinebot/util"
+	"github.com/azaky/cpbot/clist"
+	"github.com/azaky/cpbot/repository"
+	"github.com/azaky/cpbot/util"
 	"github.com/garyburd/redigo/redis"
 	"github.com/line/line-bot-sdk-go/linebot"
 )

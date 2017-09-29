@@ -9,7 +9,7 @@ settings:
     host: localhost
     port: 5001
 projects:
-- name: cplinebot
+- name: cpbot
   path: .
   fmt: true
   generate: false

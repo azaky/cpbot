@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/azaky/cplinebot/clist"
+	"github.com/azaky/cpbot/clist"
 )
 
 func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, startTo time.Time, message string) (string, error) {
