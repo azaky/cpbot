@@ -4,7 +4,7 @@ Competitive programming contests reminder bot, powered by [https://clist.by](htt
 
 Currently only Line bots exist. More to come. Meanwhile, add me on Line!
 
-![](http://qr-official.line.me/M/WU3C0ZeAh9.png)
+<a href="https://line.me/R/ti/p/%40ovl2591c"><img height="36" border="0" alt="Tambah Teman" src="https://scdn.line-apps.com/n/line_add_friends/btn/en.png"></a>
 
 ## Developing
 
