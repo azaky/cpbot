@@ -9,7 +9,7 @@ import (
 	"github.com/azaky/cpbot/clist"
 )
 
-func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, startTo time.Time, message string, limit int) ([]string, error) {
+func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, startTo time.Time, tz *time.Location, message string, limit int) ([]string, error) {
 	contests, err := clistService.GetContestsStartingBetween(startFrom, startTo)
 	if err != nil {
 		log.Printf("Error generate24HUpcomingContestsMessage: %s", err.Error())
@@ -21,7 +21,7 @@ func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, sta
 	buffer.WriteString("\n")
 	var res []string
 	for _, contest := range contests {
-		str := fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.Format("Jan 2 15:04 MST"), contest.Link)
+		str := fmt.Sprintf("- %s. Starts at %s. Link: %s\n", contest.Name, contest.StartDate.In(tz).Format("Jan 2 15:04 MST"), contest.Link)
 		if buffer.Len()+len(str) > limit {
 			res = append(res, buffer.String())
 			buffer = *bytes.NewBufferString(str)
@@ -37,8 +37,8 @@ func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, sta
 	return res, nil
 }
 
-func generate24HUpcomingContestsMessage(clistService *clist.Service, limit int) ([]string, error) {
+func generate24HUpcomingContestsMessage(clistService *clist.Service, tz *time.Location, limit int) ([]string, error) {
 	startFrom := time.Now()
 	startTo := time.Now().Add(86400 * time.Second)
-	return generateUpcomingContestsMessage(clistService, startFrom, startTo, "Contests in the next 24 hours:", limit)
+	return generateUpcomingContestsMessage(clistService, startFrom, startTo, tz, "Contests in the next 24 hours:", limit)
 }

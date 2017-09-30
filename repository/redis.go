@@ -83,3 +83,23 @@ func (r *Redis) GetDailyWithin(from, to time.Time) ([]UserTime, error) {
 	err = redis.ScanSlice(reply, &res)
 	return res, err
 }
+
+func (r *Redis) getTimezoneKey(user string) string {
+	return fmt.Sprintf("%s:timezone:%s", r.prefix, user)
+}
+
+func (r *Redis) SetTImezone(user, tz string) (interface{}, error) {
+	conn := r.pool.Get()
+	defer conn.Close()
+	return conn.Do("SET", r.getTimezoneKey(user), tz)
+}
+
+func (r *Redis) GetTimezone(user string) (*time.Location, error) {
+	conn := r.pool.Get()
+	defer conn.Close()
+	tz, err := redis.String(conn.Do("GET", r.getTimezoneKey(user)))
+	if err != nil {
+		return time.UTC, err
+	}
+	return util.LoadLocation(tz)
+}

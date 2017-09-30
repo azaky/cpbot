@@ -85,11 +85,11 @@ func (lb *LineBot) EventHandler(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (lb *LineBot) generateGreetingMessage() []linebot.Message {
+func (lb *LineBot) generateGreetingMessage(tz *time.Location) []linebot.Message {
 	var messages []linebot.Message
 	messages = append(messages, linebot.NewTextMessage(lineGreetingMessage))
 
-	initialReminder, err := generate24HUpcomingContestsMessage(lb.clistService, lineMaxMessageLength)
+	initialReminder, err := generate24HUpcomingContestsMessage(lb.clistService, tz, lineMaxMessageLength)
 	if err == nil {
 		for _, message := range initialReminder {
 			messages = append(messages, linebot.NewTextMessage(message))
@@ -105,7 +105,10 @@ func (lb *LineBot) handleFollow(event linebot.Event) {
 	if err != nil {
 		lb.log("Error adding user: %s", err.Error())
 	}
-	messages := lb.generateGreetingMessage()
+
+	tz, _ := lb.repo.GetTimezone(user)
+
+	messages := lb.generateGreetingMessage(tz)
 	if _, err = lb.client.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
 		lb.log("Error replying to follow event: %s", err.Error())
 	}
@@ -168,7 +171,10 @@ func (lb *LineBot) actionShowContestsWithin(event linebot.Event, durationStr str
 		return
 	}
 
-	replies, err := generateUpcomingContestsMessage(lb.clistService, time.Now(), time.Now().Add(duration), fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
+	user := util.LineEventSourceToString(event.Source)
+	tz, _ := lb.repo.GetTimezone(user)
+
+	replies, err := generateUpcomingContestsMessage(lb.clistService, time.Now(), time.Now().Add(duration), tz, fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
 	if err != nil {
 		lb.log("Error getting contests: %s", err.Error())
 		return
@@ -182,7 +188,10 @@ func (lb *LineBot) actionShowContestsWithin(event linebot.Event, durationStr str
 }
 
 func (lb *LineBot) actionUpdateDaily(event linebot.Event, tstr string) {
-	t, err := util.ParseTime(tstr)
+	user := util.LineEventSourceToString(event.Source)
+	tz, _ := lb.repo.GetTimezone(user)
+
+	t, err := util.ParseTimeInLocation(tstr, tz)
 	if err != nil {
 		reply := fmt.Sprintf("%s is not a valid time", tstr)
 		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
@@ -191,7 +200,6 @@ func (lb *LineBot) actionUpdateDaily(event linebot.Event, tstr string) {
 		return
 	}
 
-	user := util.LineEventSourceToString(event.Source)
 	lb.updateDaily(user, t)
 	reply := fmt.Sprintf("Daily contest reminder has been set everyday at %s", tstr)
 	if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
@@ -238,8 +246,9 @@ func (lb *LineBot) dailyJob(now time.Time) {
 
 	lb.dailyTimer = make(map[string]*time.Timer)
 	for _, userTime := range userTimes {
+		tz, _ := lb.repo.GetTimezone(userTime.User)
 		next := util.NextTime(userTime.Time)
-		lb.dailyTimer[userTime.User] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(userTime.User))
+		lb.dailyTimer[userTime.User] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(userTime.User, tz))
 	}
 }
 
@@ -248,6 +257,8 @@ func (lb *LineBot) dailyStarted() bool {
 }
 
 func (lb *LineBot) updateDaily(user string, t int) {
+	tz, _ := lb.repo.GetTimezone(user)
+
 	_, err := lb.repo.AddDaily(user, t)
 	if err != nil {
 		lb.log("[DAILY] Error adding to repo (%s, %d): %s", user, t, err.Error())
@@ -264,7 +275,7 @@ func (lb *LineBot) updateDaily(user string, t int) {
 
 	next := util.NextTime(t)
 	if next.Before(lb.dailyNext) {
-		lb.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(user))
+		lb.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(user, tz))
 	}
 }
 
@@ -284,9 +295,9 @@ func (lb *LineBot) removeDaily(user string) {
 	}
 }
 
-func (lb *LineBot) dailyReminderFunc(user string) func() {
+func (lb *LineBot) dailyReminderFunc(user string, tz *time.Location) func() {
 	return func() {
-		messages, err := generate24HUpcomingContestsMessage(lb.clistService, lineMaxMessageLength)
+		messages, err := generate24HUpcomingContestsMessage(lb.clistService, tz, lineMaxMessageLength)
 		if err != nil {
 			// TODO: retry mechanism
 			lb.log("[DAILY] Error generating message: %s", err.Error())
