@@ -88,7 +88,7 @@ func (r *Redis) getTimezoneKey(user string) string {
 	return fmt.Sprintf("%s:timezone:%s", r.prefix, user)
 }
 
-func (r *Redis) SetTImezone(user, tz string) (interface{}, error) {
+func (r *Redis) SetTimezone(user, tz string) (interface{}, error) {
 	conn := r.pool.Get()
 	defer conn.Close()
 	return conn.Do("SET", r.getTimezoneKey(user), tz)
