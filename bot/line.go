@@ -34,6 +34,13 @@ var (
 	lineRegexDaily          = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(\S+)\s*$`, lineBotName, "daily"))
 	lineRegexDailyOff       = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*%s\s*$`, lineBotName, "daily", "off"))
 	lineRegexSetTimezone    = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(\S+)\s*$`, lineBotName, "timezone"))
+	lineRegexHelp           = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*$`, lineBotName, "help"))
+	lineHelpString          = fmt.Sprintf(`Here are available commands:
+@%s daily HH:MM -> Set daily reminder for contests
+@%s daily off -> Turn off daily contest reminder
+@%s timezone Asia/Jakarta -> Set timezone
+@%s in 3h30m -> Show contests starting in 3h30m
+@%s help -> Show this`, lineBotName, lineBotName, lineBotName, lineBotName, lineBotName)
 )
 
 func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisEndpoint string) *LineBot {
@@ -158,11 +165,23 @@ func (lb *LineBot) handleTextMessage(event linebot.Event, message *linebot.TextM
 	// set timezone
 	if matches := lineRegexSetTimezone.FindStringSubmatch(message.Text); matches != nil {
 		lb.actionSetTimezone(event, matches[1])
+		return
+	}
+
+	// help
+	if matches := lineRegexHelp.FindStringSubmatch(message.Text); matches != nil {
+		lb.actionShowHelp(event)
 	}
 }
 
 func (lb *LineBot) actionEcho(event linebot.Event, message string) {
 	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message)).Do(); err != nil {
+		lb.log("Error replying: %s", err.Error())
+	}
+}
+
+func (lb *LineBot) actionShowHelp(event linebot.Event) {
+	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(lineHelpString)).Do(); err != nil {
 		lb.log("Error replying: %s", err.Error())
 	}
 }
