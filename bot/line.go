@@ -15,6 +15,11 @@ import (
 	"github.com/line/line-bot-sdk-go/linebot"
 )
 
+type messageHandler func(linebot.Event, ...string)
+type patternHandler struct {
+	Pattern *regexp.Regexp
+	Handler messageHandler
+}
 type LineBot struct {
 	clistService *clist.Service
 	client       *linebot.Client
@@ -23,24 +28,18 @@ type LineBot struct {
 	dailyTimer   map[string]*time.Timer
 	dailyNext    time.Time
 	dailyPeriod  time.Duration
+	textPatterns []patternHandler
 }
 
 var (
-	lineBotName             = os.Getenv("LINE_BOT_NAME")
 	lineGreetingMessage     = os.Getenv("LINE_GREETING_MESSAGE")
 	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
-	lineRegexEcho           = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(.*)$`, lineBotName, "echo"))
-	lineRegexShow           = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(\S+)\s*$`, lineBotName, "in"))
-	lineRegexDaily          = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(\S+)\s*$`, lineBotName, "daily"))
-	lineRegexDailyOff       = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*%s\s*$`, lineBotName, "daily", "off"))
-	lineRegexSetTimezone    = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*(\S+)\s*$`, lineBotName, "timezone"))
-	lineRegexHelp           = regexp.MustCompile(fmt.Sprintf(`^@%s\s+%s\s*$`, lineBotName, "help"))
-	lineHelpString          = fmt.Sprintf(`Here are available commands:
-@%s daily HH:MM -> Set daily reminder for contests
-@%s daily off -> Turn off daily contest reminder
-@%s timezone Asia/Jakarta -> Set timezone
-@%s in 3h30m -> Show contests starting in 3h30m
-@%s help -> Show this`, lineBotName, lineBotName, lineBotName, lineBotName, lineBotName)
+	lineHelpString          = `Here are available commands:
+@cpbot set daily HH:MM -> Set daily reminder for contests
+@cpbot unset daily -> Turn off daily contest reminder
+@cpbot set timezone Asia/Jakarta -> Set timezone
+@cpbot in 3h30m -> Show contests starting in 3h30m
+@cpbot help -> Show this`
 )
 
 func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisEndpoint string) *LineBot {
@@ -49,19 +48,63 @@ func NewLineBot(channelSecret, channelToken string, clistService *clist.Service,
 		log.Fatalf("Error when initializing linebot: %s", err.Error())
 	}
 	repo := repository.NewRedis("line", redisEndpoint)
-	return &LineBot{
+	b := &LineBot{
 		clistService: clistService,
 		client:       bot,
 		repo:         repo,
 	}
+	b.registerTextPattern(`^\s*@cpbot\s+echo\s+(.*)$`, b.actionEcho)
+	b.registerTextPattern(`^\s*@cpbot\s+in\s*(\S+)\s*$`, b.actionShowContestsWithin)
+	b.registerTextPattern(`^\s*@cpbot\s+unset\s*daily\s*$`, b.actionRemoveDaily)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?daily\s*(\S+)\s*$`, b.actionUpdateDaily)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)\s*$`, b.actionSetTimezone)
+	b.registerTextPattern(`^\s*@cpbot\s+help\s*$`, b.actionShowHelp)
+	b.registerTextPattern(`^\s*@cpbot\s*$`, b.actionShowHelp)
+	return b
 }
 
-func (lb *LineBot) log(format string, args ...interface{}) {
+func (b *LineBot) registerTextPattern(regex string, handler messageHandler) {
+	r, err := regexp.Compile(`(?i)` + regex)
+	if err != nil {
+		b.log("Error registering text pattern: %s", err.Error())
+		return
+	}
+	b.textPatterns = append(b.textPatterns, patternHandler{
+		Pattern: r,
+		Handler: handler,
+	})
+}
+
+func (b *LineBot) log(format string, args ...interface{}) {
 	log.Printf("[LINE] "+format, args...)
 }
 
-func (lb *LineBot) EventHandler(w http.ResponseWriter, req *http.Request) {
-	events, err := lb.client.ParseRequest(req)
+func (b *LineBot) reply(event linebot.Event, messages ...string) error {
+	var lineMessages []linebot.Message
+	for _, message := range messages {
+		lineMessages = append(lineMessages, linebot.NewTextMessage(message))
+	}
+	_, err := b.client.ReplyMessage(event.ReplyToken, lineMessages...).Do()
+	if err != nil {
+		b.log("Error replying to %+v: %s", event.Source, err.Error())
+	}
+	return err
+}
+
+func (b *LineBot) push(to string, messages ...string) error {
+	var lineMessages []linebot.Message
+	for _, message := range messages {
+		lineMessages = append(lineMessages, linebot.NewTextMessage(message))
+	}
+	_, err := b.client.PushMessage(to, lineMessages...).Do()
+	if err != nil {
+		b.log("Error pushing to %s: %s", to, err.Error())
+	}
+	return err
+}
+
+func (b *LineBot) EventHandler(w http.ResponseWriter, req *http.Request) {
+	events, err := b.client.ParseRequest(req)
 	if err != nil {
 		if err == linebot.ErrInvalidSignature {
 			w.WriteHeader(400)
@@ -72,33 +115,33 @@ func (lb *LineBot) EventHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	for _, event := range events {
-		lb.log("[EVENT][%s] Source: %#v", event.Type, event.Source)
+		b.log("[EVENT][%s] Source: %#v", event.Type, event.Source)
 		switch event.Type {
 
 		case linebot.EventTypeJoin:
 			fallthrough
 		case linebot.EventTypeFollow:
-			lb.handleFollow(event)
+			b.handleFollow(event)
 
 		case linebot.EventTypeLeave:
 			fallthrough
 		case linebot.EventTypeUnfollow:
-			lb.handleUnfollow(event)
+			b.handleUnfollow(event)
 
 		case linebot.EventTypeMessage:
 			switch message := event.Message.(type) {
 			case *linebot.TextMessage:
-				lb.handleTextMessage(event, message)
+				b.handleTextMessage(event, message)
 			}
 		}
 	}
 }
 
-func (lb *LineBot) generateGreetingMessage(tz *time.Location) []linebot.Message {
+func (b *LineBot) generateGreetingMessage(tz *time.Location) []linebot.Message {
 	var messages []linebot.Message
 	messages = append(messages, linebot.NewTextMessage(lineGreetingMessage))
 
-	initialReminder, err := generate24HUpcomingContestsMessage(lb.clistService, tz, lineMaxMessageLength)
+	initialReminder, err := generate24HUpcomingContestsMessage(b.clistService, tz, lineMaxMessageLength)
 	if err == nil {
 		for _, message := range initialReminder {
 			messages = append(messages, linebot.NewTextMessage(message))
@@ -108,255 +151,204 @@ func (lb *LineBot) generateGreetingMessage(tz *time.Location) []linebot.Message 
 	return messages
 }
 
-func (lb *LineBot) handleFollow(event linebot.Event) {
+func (b *LineBot) handleFollow(event linebot.Event) {
 	user := util.LineEventSourceToString(event.Source)
-	_, err := lb.repo.AddUser(user)
+	_, err := b.repo.AddUser(user)
 	if err != nil {
-		lb.log("Error adding user: %s", err.Error())
+		b.log("Error adding user: %s", err.Error())
 	}
 
-	tz, _ := lb.repo.GetTimezone(user)
+	tz, _ := b.repo.GetTimezone(user)
 
-	messages := lb.generateGreetingMessage(tz)
-	if _, err = lb.client.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
-		lb.log("Error replying to follow event: %s", err.Error())
+	messages := b.generateGreetingMessage(tz)
+	if _, err = b.client.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
+		b.log("Error replying to follow event: %s", err.Error())
 	}
 
 	// Setup default daily reminder
 	t, _ := util.ParseTime(os.Getenv("LINE_DAILY_DEFAULT"))
-	lb.updateDaily(user, t)
+	b.updateDaily(user, t)
 }
 
-func (lb *LineBot) handleUnfollow(event linebot.Event) {
+func (b *LineBot) handleUnfollow(event linebot.Event) {
 	user := util.LineEventSourceToString(event.Source)
-	_, err := lb.repo.RemoveUser(user)
+	_, err := b.repo.RemoveUser(user)
 	if err != nil {
-		lb.log("Error removing user: %s", err.Error())
+		b.log("Error removing user: %s", err.Error())
 	}
 }
 
-func (lb *LineBot) handleTextMessage(event linebot.Event, message *linebot.TextMessage) {
+func (b *LineBot) handleTextMessage(event linebot.Event, message *linebot.TextMessage) {
 	log.Printf("Received message from %s: %s", event.Source.UserID, message.Text)
-
-	// echo
-	if matches := lineRegexEcho.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionEcho(event, matches[1])
-		return
-	}
-
-	// find contests within duration
-	if matches := lineRegexShow.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionShowContestsWithin(event, matches[1])
-		return
-	}
-
-	// change daily reminder schedule
-	if matches := lineRegexDaily.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionUpdateDaily(event, matches[1])
-		return
-	}
-
-	// turn off daily reminder schedule
-	if matches := lineRegexDailyOff.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionRemoveDaily(event)
-		return
-	}
-
-	// set timezone
-	if matches := lineRegexSetTimezone.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionSetTimezone(event, matches[1])
-		return
-	}
-
-	// help
-	if matches := lineRegexHelp.FindStringSubmatch(message.Text); matches != nil {
-		lb.actionShowHelp(event)
+	for _, p := range b.textPatterns {
+		matches := p.Pattern.FindStringSubmatch(message.Text)
+		if matches != nil {
+			p.Handler(event, matches...)
+			return
+		}
 	}
 }
 
-func (lb *LineBot) actionEcho(event linebot.Event, message string) {
-	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(message)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
-	}
+func (b *LineBot) actionEcho(event linebot.Event, args ...string) {
+	b.reply(event, args[1])
 }
 
-func (lb *LineBot) actionShowHelp(event linebot.Event) {
-	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(lineHelpString)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
-	}
+func (b *LineBot) actionShowHelp(event linebot.Event, args ...string) {
+	b.reply(event, lineHelpString)
 }
 
-func (lb *LineBot) actionShowContestsWithin(event linebot.Event, durationStr string) {
-	duration, err := time.ParseDuration(durationStr)
+func (b *LineBot) actionShowContestsWithin(event linebot.Event, args ...string) {
+	duration, err := time.ParseDuration(args[1])
 	if err != nil {
 		// Duration is not valid
-		reply := fmt.Sprintf("%s is not a valid duration", durationStr)
-		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-			lb.log("Error replying: %s", err.Error())
-		}
+		reply := fmt.Sprintf("%s is not a valid duration", args[1])
+		b.reply(event, reply)
 		return
 	}
 
 	user := util.LineEventSourceToString(event.Source)
-	tz, _ := lb.repo.GetTimezone(user)
+	tz, _ := b.repo.GetTimezone(user)
 
-	replies, err := generateUpcomingContestsMessage(lb.clistService, time.Now(), time.Now().Add(duration), tz, fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
+	replies, err := generateUpcomingContestsMessage(b.clistService, time.Now(), time.Now().Add(duration), tz, fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
 	if err != nil {
-		lb.log("Error getting contests: %s", err.Error())
+		b.log("Error getting contests: %s", err.Error())
 		return
 	}
 
-	for _, reply := range replies {
-		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-			lb.log("Error replying: %s", err.Error())
-		}
-	}
+	b.reply(event, replies...)
 }
 
-func (lb *LineBot) actionUpdateDaily(event linebot.Event, tstr string) {
+func (b *LineBot) actionUpdateDaily(event linebot.Event, args ...string) {
+	tstr := args[1]
 	user := util.LineEventSourceToString(event.Source)
-	tz, _ := lb.repo.GetTimezone(user)
+	tz, _ := b.repo.GetTimezone(user)
 
 	t, err := util.ParseTimeInLocation(tstr, tz)
 	if err != nil {
 		reply := fmt.Sprintf("%s is not a valid time", tstr)
-		if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-			lb.log("Error replying: %s", err.Error())
-		}
+		b.reply(event, reply)
 		return
 	}
 
-	lb.updateDaily(user, t)
+	b.updateDaily(user, t)
 	reply := fmt.Sprintf("Daily contest reminder has been set everyday at %s", tstr)
-	if _, err = lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
-	}
+	b.reply(event, reply)
 }
 
-func (lb *LineBot) actionRemoveDaily(event linebot.Event) {
+func (b *LineBot) actionRemoveDaily(event linebot.Event, args ...string) {
 	user := util.LineEventSourceToString(event.Source)
-	lb.removeDaily(user)
+	b.removeDaily(user)
 	reply := "Daily contest reminder has been turned off"
-	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
-	}
+	b.reply(event, reply)
 }
 
-func (lb *LineBot) actionSetTimezone(event linebot.Event, tz string) {
+func (b *LineBot) actionSetTimezone(event linebot.Event, args ...string) {
+	tz := args[1]
 	user := util.LineEventSourceToString(event.Source)
 	_, err := util.LoadLocation(tz)
 	if err != nil {
 		reply := fmt.Sprintf("%s is not a valid timezone. Timezone is not changed", tz)
-		if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-			lb.log("Error replying: %s", err.Error())
-		}
+		b.reply(event, reply)
 		return
 	}
-	lb.repo.SetTimezone(user, tz)
+	b.repo.SetTimezone(user, tz)
 	reply := fmt.Sprintf("Timezone is set to %s", tz)
-	if _, err := lb.client.ReplyMessage(event.ReplyToken, linebot.NewTextMessage(reply)).Do(); err != nil {
-		lb.log("Error replying: %s", err.Error())
-	}
+	b.reply(event, reply)
 }
 
-func (lb *LineBot) StartDailyJob(duration time.Duration) {
-	if lb.dailyTicker != nil {
-		lb.log("An attempt to start daily job, but the job has already started")
+func (b *LineBot) StartDailyJob(duration time.Duration) {
+	if b.dailyTicker != nil {
+		b.log("An attempt to start daily job, but the job has already started")
 		return
 	}
-	lb.dailyPeriod = duration
-	lb.dailyTicker = time.NewTicker(lb.dailyPeriod)
+	b.dailyPeriod = duration
+	b.dailyTicker = time.NewTicker(b.dailyPeriod)
 
-	lb.dailyJob(time.Now())
+	b.dailyJob(time.Now())
 	go func() {
-		for t := range lb.dailyTicker.C {
-			lb.dailyJob(t)
+		for t := range b.dailyTicker.C {
+			b.dailyJob(t)
 		}
 	}()
 }
 
-func (lb *LineBot) dailyJob(now time.Time) {
-	lb.log("[DAILY] Start job")
-	lb.dailyNext = now.Add(lb.dailyPeriod)
+func (b *LineBot) dailyJob(now time.Time) {
+	b.log("[DAILY] Start job")
+	b.dailyNext = now.Add(b.dailyPeriod)
 
-	userTimes, err := lb.repo.GetDailyWithin(now, lb.dailyNext)
+	userTimes, err := b.repo.GetDailyWithin(now, b.dailyNext)
 	if err != nil {
-		lb.log("[DAILY] Error getting daily within: %s", err.Error())
+		b.log("[DAILY] Error getting daily within: %s", err.Error())
 		return
 	}
 
-	lb.log("[DAILY] Schedule for the following users: %v", userTimes)
+	b.log("[DAILY] Schedule for the following users: %v", userTimes)
 
-	lb.dailyTimer = make(map[string]*time.Timer)
+	b.dailyTimer = make(map[string]*time.Timer)
 	for _, userTime := range userTimes {
-		tz, _ := lb.repo.GetTimezone(userTime.User)
+		tz, _ := b.repo.GetTimezone(userTime.User)
 		next := util.NextTime(userTime.Time)
-		lb.dailyTimer[userTime.User] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(userTime.User, tz))
+		b.dailyTimer[userTime.User] = time.AfterFunc(next.Sub(time.Now()), b.dailyReminderFunc(userTime.User, tz))
 	}
 }
 
-func (lb *LineBot) dailyStarted() bool {
-	return lb.dailyTicker != nil
+func (b *LineBot) dailyStarted() bool {
+	return b.dailyTicker != nil
 }
 
-func (lb *LineBot) updateDaily(user string, t int) {
-	tz, _ := lb.repo.GetTimezone(user)
+func (b *LineBot) updateDaily(user string, t int) {
+	tz, _ := b.repo.GetTimezone(user)
 
-	_, err := lb.repo.AddDaily(user, t)
+	_, err := b.repo.AddDaily(user, t)
 	if err != nil {
-		lb.log("[DAILY] Error adding to repo (%s, %d): %s", user, t, err.Error())
+		b.log("[DAILY] Error adding to repo (%s, %d): %s", user, t, err.Error())
 	}
 
-	if !lb.dailyStarted() {
+	if !b.dailyStarted() {
 		return
 	}
 
-	if t, ok := lb.dailyTimer[user]; ok {
+	if t, ok := b.dailyTimer[user]; ok {
 		t.Stop()
-		delete(lb.dailyTimer, user)
+		delete(b.dailyTimer, user)
 	}
 
 	next := util.NextTime(t)
-	if next.Before(lb.dailyNext) {
-		lb.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), lb.dailyReminderFunc(user, tz))
+	if next.Before(b.dailyNext) {
+		b.dailyTimer[user] = time.AfterFunc(next.Sub(time.Now()), b.dailyReminderFunc(user, tz))
 	}
 }
 
-func (lb *LineBot) removeDaily(user string) {
-	_, err := lb.repo.RemoveDaily(user)
+func (b *LineBot) removeDaily(user string) {
+	_, err := b.repo.RemoveDaily(user)
 	if err != nil {
-		lb.log("[DAILY] Error removing from repo (%s): %s", user, err.Error())
+		b.log("[DAILY] Error removing from repo (%s): %s", user, err.Error())
 	}
 
-	if !lb.dailyStarted() {
+	if !b.dailyStarted() {
 		return
 	}
 
-	if t, ok := lb.dailyTimer[user]; ok {
+	if t, ok := b.dailyTimer[user]; ok {
 		t.Stop()
-		delete(lb.dailyTimer, user)
+		delete(b.dailyTimer, user)
 	}
 }
 
-func (lb *LineBot) dailyReminderFunc(user string, tz *time.Location) func() {
+func (b *LineBot) dailyReminderFunc(user string, tz *time.Location) func() {
 	return func() {
-		messages, err := generate24HUpcomingContestsMessage(lb.clistService, tz, lineMaxMessageLength)
+		messages, err := generate24HUpcomingContestsMessage(b.clistService, tz, lineMaxMessageLength)
 		if err != nil {
 			// TODO: retry mechanism
-			lb.log("[DAILY] Error generating message: %s", err.Error())
+			b.log("[DAILY] Error generating message: %s", err.Error())
 			return
 		}
 
 		eventSource, err := util.StringToLineEventSource(user)
 		if err != nil {
-			lb.log("[DAILY] found invalid user [%s]: %s", user, err.Error())
+			b.log("[DAILY] found invalid user [%s]: %s", user, err.Error())
 			return
 		}
-		to := fmt.Sprintf("%s", util.LineEventSourceToReplyString(eventSource))
-		for _, message := range messages {
-			if _, err = lb.client.PushMessage(to, linebot.NewTextMessage(message)).Do(); err != nil {
-				lb.log("[CRON] Error sending message to [%s]: %s", to, err.Error())
-			}
-		}
+		b.push(util.LineEventSourceToReplyString(eventSource), messages...)
 	}
 }
