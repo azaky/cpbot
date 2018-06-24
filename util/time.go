@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -67,6 +68,10 @@ func TimeToInt(t time.Time) int {
 }
 
 func LoadLocation(tz string) (*time.Location, error) {
-	// TODO: parse simple strings like "UTC+7"
+	// parse "UTC+x"
+	if strings.HasPrefix(tz, "UTC") {
+		return time.LoadLocation(strings.Replace("UTC", tz, "GMT", 1))
+	}
+
 	return time.LoadLocation(tz)
 }

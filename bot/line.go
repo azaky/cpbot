@@ -79,13 +79,13 @@ func NewLineBot(channelSecret, channelToken string, clistService *clist.Service,
 	b.registerTextPattern(`^\s*@cpbot\s*(?:help\s*)?$`, b.actionShowHelp)
 	b.registerTextPattern(`^\s*@cpbot\s*(?:about\s*)?$`, b.actionShowAbout)
 
-	b.registerTextPattern(`^\s*@cpbot\s+in\s*(\S+)\s*$`, b.actionShowContestsWithin)
+	b.registerTextPattern(`^\s*@cpbot\s+in\s*(\S+)?\s*$`, b.actionShowContestsWithin)
 
 	b.registerTextPattern(`^\s*@cpbot\s+unset\s*daily\s*$`, b.actionRemoveDaily)
-	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?daily\s*(\S+)\s*$`, b.actionUpdateDaily)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?daily\s*(\S+)?\s*$`, b.actionUpdateDaily)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:get\s+)daily\s*$`, b.actionGetDaily)
 
-	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)\s*$`, b.actionSetTimezone)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)?\s*$`, b.actionSetTimezone)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:get\s+)timezone\s*$`, b.actionGetTimezone)
 
 	return b
@@ -228,6 +228,11 @@ func (b *LineBot) actionShowAbout(event linebot.Event, args ...string) {
 }
 
 func (b *LineBot) actionShowContestsWithin(event linebot.Event, args ...string) {
+	if args[1] == "" {
+		b.reply(event, `Duration is required for "in" command. Example:
+
+@cpbot in 10h`)
+	}
 	duration, err := time.ParseDuration(args[1])
 	if err != nil {
 		// Duration is not valid
@@ -239,7 +244,7 @@ func (b *LineBot) actionShowContestsWithin(event linebot.Event, args ...string) 
 	user := util.LineEventSourceToString(event.Source)
 	tz, _ := b.repo.GetTimezone(user)
 
-	replies, err := generateUpcomingContestsMessage(b.clistService, time.Now(), time.Now().Add(duration), tz, fmt.Sprintf("Contests starting within %s:", duration), lineMaxMessageLength)
+	replies, err := generateUpcomingContestsMessage(b.clistService, time.Now(), time.Now().Add(duration), tz, fmt.Sprintf("Contests starting within %s:", args[1]), lineMaxMessageLength)
 	if err != nil {
 		b.log("Error getting contests: %s", err.Error())
 		return
@@ -251,6 +256,12 @@ func (b *LineBot) actionShowContestsWithin(event linebot.Event, args ...string) 
 func (b *LineBot) actionUpdateDaily(event linebot.Event, args ...string) {
 	tstr := args[1]
 	user := util.LineEventSourceToString(event.Source)
+	if tstr == "" {
+		b.reply(event, `Time is required for "set daily" command. Example:
+
+@cpbot set daily 09:00`)
+		return
+	}
 	tz, _ := b.repo.GetTimezone(user)
 
 	t, err := util.ParseTimeInLocation(tstr, tz)
@@ -287,6 +298,12 @@ func (b *LineBot) actionGetDaily(event linebot.Event, args ...string) {
 func (b *LineBot) actionSetTimezone(event linebot.Event, args ...string) {
 	tz := args[1]
 	user := util.LineEventSourceToString(event.Source)
+	if tz == "" {
+		b.reply(event, `Timezone is required for "set timezone" command. Example:
+
+@cpbot set timezone UTC+10`)
+		return
+	}
 	_, err := util.LoadLocation(tz)
 	if err != nil {
 		reply := fmt.Sprintf("%s is not a valid timezone. Timezone is not changed", tz)
