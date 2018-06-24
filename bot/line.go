@@ -32,18 +32,30 @@ type LineBot struct {
 }
 
 var (
-	lineGreetingMessage     = os.Getenv("LINE_GREETING_MESSAGE")
 	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
 )
 
 const (
+	lineGreetingMessage = `Thanks for adding me!
+
+I will remind you the schedule of upcoming competitive programming contests. Contest times are provided by the awesome https://clist.by by Aleksey Ropan.
+
+Type "@cpbot help" for the complete list of commands.`
+
 	lineHelpString = `Here are available commands:
+
 @cpbot set daily HH:MM -> Set daily reminder for contests
 @cpbot unset daily -> Turn off daily contest reminder
-@cpbot set timezone Asia/Jakarta -> Set timezone
+@cpbot get daily -> Show current daily setting
+
 @cpbot in 3h30m -> Show contests starting in 3h30m
+
+@cpbot set timezone Asia/Jakarta -> Set timezone
+@cpbot get timezone -> Get current timezone setting
+
 @cpbot about -> Show info about this bot
 @cpbot help -> Show this`
+
 	lineAboutString = `cpbot: a competitive programming contests reminder bot
 
 Source Code: https://github.com/azaky/cpbot
@@ -63,12 +75,19 @@ func NewLineBot(channelSecret, channelToken string, clistService *clist.Service,
 		client:       bot,
 		repo:         repo,
 	}
+
 	b.registerTextPattern(`^\s*@cpbot\s*(?:help\s*)?$`, b.actionShowHelp)
+	b.registerTextPattern(`^\s*@cpbot\s*(?:about\s*)?$`, b.actionShowAbout)
+
 	b.registerTextPattern(`^\s*@cpbot\s+in\s*(\S+)\s*$`, b.actionShowContestsWithin)
+
 	b.registerTextPattern(`^\s*@cpbot\s+unset\s*daily\s*$`, b.actionRemoveDaily)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?daily\s*(\S+)\s*$`, b.actionUpdateDaily)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:get\s+)daily\s*$`, b.actionGetDaily)
+
 	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)\s*$`, b.actionSetTimezone)
-	b.registerTextPattern(`^\s*@cpbot\s*(?:about\s*)?$`, b.actionShowAbout)
+	b.registerTextPattern(`^\s*@cpbot\s+(?:get\s+)timezone\s*$`, b.actionGetTimezone)
+
 	return b
 }
 
@@ -167,7 +186,9 @@ func (b *LineBot) handleFollow(event linebot.Event) {
 		b.log("Error adding user: %s", err.Error())
 	}
 
-	tz, _ := b.repo.GetTimezone(user)
+	// Set default timezone to Asia/Jakarta
+	tz, _ := util.LoadLocation("Asia/Jakarta")
+	b.repo.SetTimezone(user, "Asia/Jakarta")
 
 	messages := b.generateGreetingMessage(tz)
 	if _, err = b.client.ReplyMessage(event.ReplyToken, messages...).Do(); err != nil {
@@ -251,6 +272,18 @@ func (b *LineBot) actionRemoveDaily(event linebot.Event, args ...string) {
 	b.reply(event, reply)
 }
 
+func (b *LineBot) actionGetDaily(event linebot.Event, args ...string) {
+	user := util.LineEventSourceToString(event.Source)
+	daily, err := b.getDaily(user)
+	var reply string
+	if err != nil {
+		reply = "Daily has not been set. Set it with the following command:\n\n@cpbot set daily HH:MM"
+	} else {
+		reply = fmt.Sprintf("Daily contest reminder is set at %s everyday", daily)
+	}
+	b.reply(event, reply)
+}
+
 func (b *LineBot) actionSetTimezone(event linebot.Event, args ...string) {
 	tz := args[1]
 	user := util.LineEventSourceToString(event.Source)
@@ -260,8 +293,22 @@ func (b *LineBot) actionSetTimezone(event linebot.Event, args ...string) {
 		b.reply(event, reply)
 		return
 	}
+
 	b.repo.SetTimezone(user, tz)
 	reply := fmt.Sprintf("Timezone is set to %s", tz)
+	b.reply(event, reply)
+}
+
+func (b *LineBot) actionGetTimezone(event linebot.Event, args ...string) {
+	user := util.LineEventSourceToString(event.Source)
+	tz, err := b.repo.GetRawTimezone(user)
+	if err != nil {
+		b.log("Error getting timezone for (%s): %s", user, err.Error())
+		b.reply(event, "Error getting timezone, please try again in a few moments")
+		return
+	}
+
+	reply := fmt.Sprintf("Timezone is currently set to %s", tz)
 	b.reply(event, reply)
 }
 
@@ -341,6 +388,21 @@ func (b *LineBot) removeDaily(user string) {
 	if t, ok := b.dailyTimer[user]; ok {
 		t.Stop()
 		delete(b.dailyTimer, user)
+	}
+}
+
+func (b *LineBot) getDaily(user string) (string, error) {
+	daily, err := b.repo.GetDaily(user)
+	if err != nil {
+		b.log("[DAILY] Error getting daily (%s): %s", user, err.Error())
+		return "", err
+	}
+	tz, _ := b.repo.GetTimezone(user)
+	t := util.NextTime(daily).In(tz)
+	if t.Second() == 0 {
+		return t.Format("15:04"), nil
+	} else {
+		return t.Format("15:04:05"), nil
 	}
 }
 

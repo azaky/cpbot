@@ -60,6 +60,12 @@ func (r *Redis) RemoveDaily(userID string) (interface{}, error) {
 	return conn.Do("ZREM", r.getDailyKey(), userID)
 }
 
+func (r *Redis) GetDaily(userID string) (int, error) {
+	conn := r.pool.Get()
+	defer conn.Close()
+	return redis.Int(conn.Do("ZSCORE", r.getDailyKey(), userID))
+}
+
 type UserTime struct {
 	User string
 	Time int
@@ -94,10 +100,14 @@ func (r *Redis) SetTimezone(user, tz string) (interface{}, error) {
 	return conn.Do("SET", r.getTimezoneKey(user), tz)
 }
 
-func (r *Redis) GetTimezone(user string) (*time.Location, error) {
+func (r *Redis) GetRawTimezone(user string) (string, error) {
 	conn := r.pool.Get()
 	defer conn.Close()
-	tz, err := redis.String(conn.Do("GET", r.getTimezoneKey(user)))
+	return redis.String(conn.Do("GET", r.getTimezoneKey(user)))
+}
+
+func (r *Redis) GetTimezone(user string) (*time.Location, error) {
+	tz, err := r.GetRawTimezone(user)
 	if err != nil {
 		return time.UTC, err
 	}
