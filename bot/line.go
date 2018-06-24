@@ -88,6 +88,8 @@ func NewLineBot(channelSecret, channelToken string, clistService *clist.Service,
 	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)?\s*$`, b.actionSetTimezone)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:get\s+)timezone\s*$`, b.actionGetTimezone)
 
+	b.registerTextPattern(`^\s*@cpbot\s+(.*)$`, b.actionUnknown)
+
 	return b
 }
 
@@ -326,6 +328,11 @@ func (b *LineBot) actionGetTimezone(event linebot.Event, args ...string) {
 	}
 
 	reply := fmt.Sprintf("Timezone is currently set to %s", tz)
+	b.reply(event, reply)
+}
+
+func (b *LineBot) actionUnknown(event linebot.Event, args ...string) {
+	reply := fmt.Sprintf(`%s is unknown command. Type "@cpbot help" for the complete list of commands.`, args[1])
 	b.reply(event, reply)
 }
 
