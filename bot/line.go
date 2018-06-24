@@ -34,12 +34,22 @@ type LineBot struct {
 var (
 	lineGreetingMessage     = os.Getenv("LINE_GREETING_MESSAGE")
 	lineMaxMessageLength, _ = strconv.Atoi(os.Getenv("LINE_MAX_MESSAGE_LENGTH"))
-	lineHelpString          = `Here are available commands:
+)
+
+const (
+	lineHelpString = `Here are available commands:
 @cpbot set daily HH:MM -> Set daily reminder for contests
 @cpbot unset daily -> Turn off daily contest reminder
 @cpbot set timezone Asia/Jakarta -> Set timezone
 @cpbot in 3h30m -> Show contests starting in 3h30m
+@cpbot about -> Show info about this bot
 @cpbot help -> Show this`
+	lineAboutString = `cpbot: a competitive programming contests reminder bot
+
+Source Code: https://github.com/azaky/cpbot
+Credits:
+- Contest List API provided by https://clist.by created by Aleksey Ropan
+- Logo by Roland Hartanto`
 )
 
 func NewLineBot(channelSecret, channelToken string, clistService *clist.Service, redisEndpoint string) *LineBot {
@@ -53,13 +63,12 @@ func NewLineBot(channelSecret, channelToken string, clistService *clist.Service,
 		client:       bot,
 		repo:         repo,
 	}
-	b.registerTextPattern(`^\s*@cpbot\s+echo\s+(.*)$`, b.actionEcho)
+	b.registerTextPattern(`^\s*@cpbot\s*(?:help\s*)?$`, b.actionShowHelp)
 	b.registerTextPattern(`^\s*@cpbot\s+in\s*(\S+)\s*$`, b.actionShowContestsWithin)
 	b.registerTextPattern(`^\s*@cpbot\s+unset\s*daily\s*$`, b.actionRemoveDaily)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?daily\s*(\S+)\s*$`, b.actionUpdateDaily)
 	b.registerTextPattern(`^\s*@cpbot\s+(?:set\s*)?timezone\s*(\S+)\s*$`, b.actionSetTimezone)
-	b.registerTextPattern(`^\s*@cpbot\s+help\s*$`, b.actionShowHelp)
-	b.registerTextPattern(`^\s*@cpbot\s*$`, b.actionShowHelp)
+	b.registerTextPattern(`^\s*@cpbot\s*(?:about\s*)?$`, b.actionShowAbout)
 	return b
 }
 
@@ -189,12 +198,12 @@ func (b *LineBot) handleTextMessage(event linebot.Event, message *linebot.TextMe
 	}
 }
 
-func (b *LineBot) actionEcho(event linebot.Event, args ...string) {
-	b.reply(event, args[1])
-}
-
 func (b *LineBot) actionShowHelp(event linebot.Event, args ...string) {
 	b.reply(event, lineHelpString)
+}
+
+func (b *LineBot) actionShowAbout(event linebot.Event, args ...string) {
+	b.reply(event, lineAboutString)
 }
 
 func (b *LineBot) actionShowContestsWithin(event linebot.Event, args ...string) {
