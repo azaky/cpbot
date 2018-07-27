@@ -18,10 +18,13 @@ func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, sta
 
 	var buffer bytes.Buffer
 	buffer.WriteString(message)
-	buffer.WriteString("\n")
+	buffer.WriteString("\n\n")
 	var res []string
-	for _, contest := range contests {
-		str := fmt.Sprintf("\n- %s. Starts at %s. Link: %s", contest.Name, contest.StartDate.In(tz).Format("Jan 2 15:04 MST"), contest.Link)
+	for i, contest := range contests {
+		str := fmt.Sprintf("- %s. Starts at %s. Link: %s", contest.Name, contest.StartDate.In(tz).Format("Jan 2 15:04 MST"), contest.Link)
+		if i < len(contests)-1 {
+			str = str + "\n"
+		}
 		if buffer.Len()+len(str) > limit {
 			res = append(res, buffer.String())
 			buffer = *bytes.NewBufferString(str)
