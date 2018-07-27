@@ -23,7 +23,7 @@ func generateUpcomingContestsMessage(clistService *clist.Service, startFrom, sta
 	for _, contest := range contests {
 		str := ""
 		if buffer.Len() > 0 {
-			str = "\n" 
+			str = "\n"
 		}
 		str = str + fmt.Sprintf("- %s. Starts at %s. Link: %s", contest.Name, contest.StartDate.In(tz).Format("Jan 2 15:04 MST"), contest.Link)
 		if buffer.Len()+len(str) > limit {
